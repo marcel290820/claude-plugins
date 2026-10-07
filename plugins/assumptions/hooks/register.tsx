@@ -24,7 +24,7 @@ async function judge($: EngineInterface, text: string, verdict: 'ok' | 'wrong') 
 
 function showCount($: EngineInterface, all: Assumption[]) {
   const open = all.filter(one => one.verdict === undefined).length
-  $.ui.status(open === 0 ? undefined : `${open} assumption${open === 1 ? '' : 's'} to review`)
+  $.ui.status(open === 0 ? undefined : `${open} to review`)
 }
 
 export const register: Register = on => {
@@ -80,43 +80,86 @@ export const register: Register = on => {
     const all = await read($, list)
     const open = all.filter(one => one.verdict === undefined)
     const judged = all.filter(one => one.verdict !== undefined)
+    const held = judged.filter(one => one.verdict === 'ok').length
+
+    if (all.length === 0) {
+      return (
+        <Text dimColor>
+          Nothing to review. Lines Claude marks ASSUMPTION: land here.
+        </Text>
+      )
+    }
 
     return (
-      <Box flexDirection="column" gap={1}>
-        {all.length === 0 && <Text dimColor>No assumptions yet.</Text>}
-        {open.map((one, index) => (
-          <Box key={`open-${one.text}`} flexDirection="column">
-            <Text>{one.text}</Text>
-            <Box gap={2}>
-              <Button
-                key={`ok-${one.text}`}
-                plain
-                hotkey={index === 0 ? 'y' : undefined}
-                label="holds"
-                onPress={() => judge($, one.text, 'ok')}
-              />
-              <Button
-                key={`wrong-${one.text}`}
-                plain
-                hotkey={index === 0 ? 'n' : undefined}
-                label="wrong"
-                onPress={async () => {
-                  await judge($, one.text, 'wrong')
-                  await $.prompt.fill({ text: `Wrong assumption: ${one.text}\nCorrect: ` })
-                }}
-              />
-            </Box>
+      <Box flexDirection="column">
+        <Box justifyContent="space-between">
+          <Box gap={1}>
+            <Text bold>Assumptions</Text>
+            <Text dimColor>
+              {[
+                open.length > 0 ? `${open.length} open` : 'all reviewed',
+                held > 0 ? `${held} holds` : '',
+                judged.length > held ? `${judged.length - held} wrong` : '',
+              ]
+                .filter(part => part !== '')
+                .join(', ')}
+            </Text>
           </Box>
-        ))}
-        {judged.length > 0 && (
-          <Box flexDirection="column">
-            {judged.map(one => (
-              <Text dimColor strikethrough={one.verdict === 'wrong'}>
-                {one.verdict === 'ok' ? 'holds' : 'wrong'}  {one.text}
+          {open.length > 0 && !e.props.isFocused && (
+            <Text dimColor>(ctrl+x tab to answer)</Text>
+          )}
+        </Box>
+        <Box flexDirection="column">
+          {open.map((one, index) => {
+            const isNext = index === 0
+
+            // The next one answers to y/n while the pane has the keys; the rest show their buttons under the pointer.
+            return (
+              <Box key={`open-${one.text}`} gap={1}>
+                <Text color={isNext ? 'suggestion' : 'warning'}>{isNext ? '❯' : '?'}</Text>
+                <Text bold={isNext} color={isNext ? 'suggestion' : undefined}>
+                  {one.text}
+                </Text>
+                <Box
+                  gap={2}
+                  marginLeft={2}
+                  flexShrink={0}
+                  {...(isNext ? {} : { display: 'none', hover: { display: 'flex' } } as const)}
+                >
+                  <Button
+                    key={`ok-${one.text}`}
+                    plain
+                    dimColor={!e.props.isFocused}
+                    hotkey={isNext && e.props.isFocused ? 'y' : undefined}
+                    label="holds"
+                    onPress={() => judge($, one.text, 'ok')}
+                  />
+                  <Button
+                    key={`wrong-${one.text}`}
+                    plain
+                    dimColor={!e.props.isFocused}
+                    hotkey={isNext && e.props.isFocused ? 'n' : undefined}
+                    label="wrong"
+                    onPress={async () => {
+                      await judge($, one.text, 'wrong')
+                      await $.prompt.fill({ text: `Wrong assumption: ${one.text}\nCorrect: ` })
+                    }}
+                  />
+                </Box>
+              </Box>
+            )
+          })}
+          {judged.map(one => (
+            <Box key={`judged-${one.text}`} gap={1}>
+              <Text color={one.verdict === 'ok' ? 'success' : 'error'}>
+                {one.verdict === 'ok' ? '✓' : '✗'}
               </Text>
-            ))}
-          </Box>
-        )}
+              <Text dimColor strikethrough={one.verdict === 'wrong'}>
+                {one.text}
+              </Text>
+            </Box>
+          ))}
+        </Box>
       </Box>
     )
   })

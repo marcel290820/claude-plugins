@@ -26,7 +26,7 @@ test('parses markers anywhere on a line', () => {
 test('the empty pane draws on every surface', async $ => {
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect(await ui.find({ text: /No assumptions yet/ })).toBeDefined()
+    expect(await ui.find({ text: /Nothing to review/ })).toBeDefined()
     await ui.unmount()
   }
 })
