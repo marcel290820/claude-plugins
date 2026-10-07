@@ -1,0 +1,16 @@
+{
+  "name": "claude-mods",
+  "owner": { "name": "claude-mods" },
+  "plugins": [
+    {
+      "name": "next-steps",
+      "source": "./plugins/next-steps",
+      "description": "Shows the reply's Next steps above the prompt; a digit fills one in."
+    },
+    {
+      "name": "assumptions",
+      "source": "./plugins/assumptions",
+      "description": "Collects ASSUMPTION: markers into a pane to confirm or correct."
+    }
+  ]
+}
