@@ -1,0 +1,6 @@
+{
+  "name": "assumptions",
+  "version": "0.1.0",
+  "description": "Collects ASSUMPTION: markers into a pane to confirm or correct.",
+  "types": "./types/index.d.ts"
+}
