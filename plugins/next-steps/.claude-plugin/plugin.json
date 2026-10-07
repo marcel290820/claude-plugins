@@ -1,6 +1,6 @@
 {
   "name": "next-steps",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Shows the reply's Next steps above the prompt; a digit fills one in.",
   "types": "./types/index.d.ts"
 }
