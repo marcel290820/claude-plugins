@@ -1,4 +1,4 @@
-# claude-mods
+# claude-plugins
 
 Personal Claude Code mods (function-hook plugins), shipped as one marketplace.
 
@@ -16,16 +16,16 @@ following them too. The mods only read and present them.
 From GitHub (repo is private; needs GitHub access on that machine):
 
 ```
-/plugin install next-steps --marketplace <github-user>/claude-mods
-/plugin install assumptions --marketplace <github-user>/claude-mods
+/plugin install next-steps --marketplace <github-user>/claude-plugins
+/plugin install assumptions --marketplace <github-user>/claude-plugins
 ```
 
 From a local checkout, so `/reload-plugins` picks up your edits without a new version:
 
 ```
-claude plugin marketplace add ~/Documents/Projects/Personal/claude-mods
-claude plugin install next-steps@claude-mods
-claude plugin install assumptions@claude-mods
+claude plugin marketplace add ~/Documents/Projects/Personal/claude-plugins
+claude plugin install next-steps@personal-plugins
+claude plugin install assumptions@personal-plugins
 ```
 
 ## Develop

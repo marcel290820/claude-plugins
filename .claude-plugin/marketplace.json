@@ -1,6 +1,6 @@
 {
-  "name": "claude-mods",
-  "owner": { "name": "claude-mods" },
+  "name": "personal-plugins",
+  "owner": { "name": "personal-plugins" },
   "plugins": [
     {
       "name": "next-steps",
