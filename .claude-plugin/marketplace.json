@@ -1,6 +1,8 @@
 {
   "name": "personal-plugins",
-  "owner": { "name": "personal-plugins" },
+  "owner": {
+    "name": "personal-plugins"
+  },
   "plugins": [
     {
       "name": "next-steps",
@@ -11,6 +13,11 @@
       "name": "assumptions",
       "source": "./plugins/assumptions",
       "description": "Collects ASSUMPTION: markers into a pane to confirm or correct."
+    },
+    {
+      "name": "tips",
+      "source": "./plugins/tips",
+      "description": "Suggests the Claude Code command that fits the moment; /tips opens the cheat sheet."
     }
   ]
 }

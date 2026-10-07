@@ -6,6 +6,7 @@ Personal Claude Code mods (function-hook plugins), shipped as one marketplace.
 | --- | --- |
 | `next-steps` | Reads the "Next steps" section that ends each reply and lists the steps in the band above the prompt. With the prompt empty, press `1`-`9` (or click a step) to put that step in the prompt. The band hides while a turn runs and when the steps are "none". |
 | `assumptions` | Collects every `ASSUMPTION:` line Claude writes into an **Assumptions** pane. The status line shows how many are open. Mark each one `holds` (`y`) or `wrong` (`n`); `wrong` fills the prompt with a correction to finish. Open the pane with `/assumptions`. On a wide fullscreen terminal it docks by itself when a new assumption arrives. |
+| `tips` | A proactive cheat sheet. When a prompt or turn fits a Claude Code command (a research question, a full context window, five changed files, an interrupted turn, an opened PR), the hint line under the prompt suggests it once, e.g. `✦ /compact · context 81% full`. Tips stay rare (three prompts apart), and a command you have run twice stops being suggested. `/tips` opens the whole cheat sheet; `/tips <word>` filters it. |
 
 The conventions themselves (end each reply with "Next steps", prefix
 unverified assumptions with `ASSUMPTION:`) stay in `AGENTS.md`, so Codex keeps
@@ -18,6 +19,7 @@ From GitHub (repo is private; needs GitHub access on that machine):
 ```
 /plugin install next-steps --marketplace <github-user>/claude-plugins
 /plugin install assumptions --marketplace <github-user>/claude-plugins
+/plugin install tips --marketplace <github-user>/claude-plugins
 ```
 
 From a local checkout, so `/reload-plugins` picks up your edits without a new version:
@@ -26,6 +28,7 @@ From a local checkout, so `/reload-plugins` picks up your edits without a new ve
 claude plugin marketplace add ~/Documents/Projects/Personal/claude-plugins
 claude plugin install next-steps@personal-plugins
 claude plugin install assumptions@personal-plugins
+claude plugin install tips@personal-plugins
 ```
 
 ## Develop
