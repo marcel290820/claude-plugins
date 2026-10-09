@@ -1,0 +1,14 @@
+{
+  "name": "counterpart-review",
+  "version": "0.1.0",
+  "description": "Claude Opus 5.5 (xhigh) reviews every commit after a secrets scan and the project check; the review skill asks it about anything else.",
+  "skills": "./skills/",
+  "hooks": "./hooks/codex.json",
+  "interface": {
+    "displayName": "Counterpart Review",
+    "shortDescription": "Claude Code reviews Codex's commits and plans",
+    "category": "Coding",
+    "capabilities": ["Lifecycle hooks", "Instructions"],
+    "defaultPrompt": ["Have Claude review this plan.", "Get a counterpart review of my uncommitted changes."]
+  }
+}

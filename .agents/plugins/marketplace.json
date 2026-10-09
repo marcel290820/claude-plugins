@@ -1,0 +1,16 @@
+{
+  "name": "personal-plugins",
+  "interface": {
+    "displayName": "Personal plugins"
+  },
+  "plugins": [
+    {
+      "name": "counterpart-review",
+      "source": {
+        "source": "local",
+        "path": "./plugins/counterpart-review"
+      },
+      "category": "Coding"
+    }
+  ]
+}

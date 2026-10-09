@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$PLUGIN_ROOT/scripts/commit-gate.sh\" claude",
+            "timeout": 900,
+            "statusMessage": "Commit gate: secrets scan, project check, Claude review"
+          }
+        ]
+      }
+    ]
+  }
+}

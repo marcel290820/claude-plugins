@@ -18,6 +18,11 @@
       "name": "tips",
       "source": "./plugins/tips",
       "description": "Suggests the Claude Code command that fits the moment; /tips opens the cheat sheet."
+    },
+    {
+      "name": "counterpart-review",
+      "source": "./plugins/counterpart-review",
+      "description": "Codex reviews every commit after a secrets scan and the project check; also on demand."
     }
   ]
 }
