@@ -175,6 +175,7 @@ printf '#!/bin/sh\necho ran >> %s; exit 0\n' "$T/unborn-runs" > "$T/unborn/.clau
 # review.sh on its own, as the skill runs it.
 out=$(echo plan | "$S/review.sh" claude); rc=$?
 [ $rc -eq 0 ] && [ "$out" = fine ] && ok || bad "review.sh: pass should exit 0 with the summary (rc=$rc): $out"
+grep -q '^You are the reviewer' "$FAKE_LOG.prompt" && ok || bad "review.sh: the reviewer must be told not to request a review itself"
 out=$(echo plan | FAKE_MODE=block "$S/review.sh" codex); rc=$?
 [ $rc -eq 1 ] && printf '%s' "$out" | grep -q 'fake finding' && ok || bad "review.sh: findings should exit 1 (rc=$rc): $out"
 out=$(echo plan | FAKE_MODE=limit "$S/review.sh" claude); rc=$?

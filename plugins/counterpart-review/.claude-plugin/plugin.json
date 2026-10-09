@@ -1,6 +1,6 @@
 {
   "name": "counterpart-review",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Codex (GPT 6.1 Sol, xhigh) reviews every commit after a secrets scan and the project check; /counterpart-review:review asks it about anything else.",
   "hooks": "./hooks/claude.json"
 }

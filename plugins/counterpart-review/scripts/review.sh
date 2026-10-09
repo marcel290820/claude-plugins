@@ -12,7 +12,11 @@ REVIEWER=${1:-}
 TIMEOUT=${REVIEW_TIMEOUT:-780}
 case "$REVIEWER" in codex|claude) ;; *) echo "Usage: review.sh codex|claude < prompt" >&2; exit 2;; esac
 command -v "$REVIEWER" >/dev/null 2>&1 || { echo "The $REVIEWER CLI is not on PATH, so the counterpart review cannot run. Install and log in to it, or disable the counterpart-review plugin."; exit 2; }
-PROMPT=$(cat)
+# The reviewer loads the shared AGENTS.md, whose counterpart-review rule would otherwise send it
+# looking for a review of its own review.
+PROMPT="You are the reviewer. Do not request or run another review; give your own verdict.
+
+$(cat)"
 WORK=$(mktemp -d) || { echo "Reviewer could not allocate a temp directory."; exit 2; }
 trap 'rm -rf "$WORK"' EXIT
 SCHEMA='{"type":"object","properties":{"ok":{"type":"boolean"},"reason":{"type":"string"}},"required":["ok","reason"],"additionalProperties":false}'
