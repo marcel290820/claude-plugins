@@ -20,6 +20,11 @@
       "description": "Suggests the Claude Code command that fits the moment; /tips opens the cheat sheet."
     },
     {
+      "name": "tutor",
+      "source": "./plugins/tutor",
+      "description": "A tutor pane: /tutor explains anything, remembers what you learned, and builds on it."
+    },
+    {
       "name": "counterpart-review",
       "source": "./plugins/counterpart-review",
       "description": "Codex reviews every commit after a secrets scan and the project check; also on demand."

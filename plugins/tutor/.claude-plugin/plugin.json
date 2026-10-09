@@ -1,0 +1,21 @@
+{
+  "name": "tutor",
+  "version": "0.1.0",
+  "description": "A tutor pane: /tutor explains anything, remembers what you learned, and builds on it.",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "model": {
+      "type": "string",
+      "title": "Tutor model",
+      "description": "The model that writes the explanations. opus explains best; sonnet and haiku answer faster.",
+      "default": "opus",
+      "options": ["opus", "sonnet", "haiku"]
+    },
+    "background": {
+      "type": "string",
+      "title": "Your background",
+      "description": "One or two sentences about what you already know, e.g. your field and level. The tutor starts from there.",
+      "default": ""
+    }
+  }
+}
