@@ -148,7 +148,8 @@ test('what the person marked is said in one block, and nothing when nothing was 
     'What the user marked in the debrief since your last reply:\n' +
       '- Confirmed these assumptions hold: "a"; "b"\n' +
       '- Marked these assumptions wrong (the prompt may say what is true): "c"\n' +
-      '- Did these steps themselves: "Restart Codex"',
+      '- Did these steps themselves: "Restart Codex"\n' +
+      'These are facts the user checked: if you keep a memory, save any that will still matter in later sessions, a wrong one with what is true instead.',
   )
   expect(newsContext({ holds: [], wrong: [], did: [] })).toBeUndefined()
 })
@@ -240,7 +241,8 @@ test('an assumption steps through holds and wrong with one key, keeping its row 
   expect(submitted.at(-1)?.context[0]).toBe(
     'What the user marked in the debrief since your last reply:\n' +
       '- Confirmed these assumptions hold: "the VPS runs the same version"\n' +
-      '- Marked these assumptions wrong (the prompt may say what is true): "port 8080 is free"',
+      '- Marked these assumptions wrong (the prompt may say what is true): "port 8080 is free"\n' +
+      'These are facts the user checked: if you keep a memory, save any that will still matter in later sessions, a wrong one with what is true instead.',
   )
 })
 

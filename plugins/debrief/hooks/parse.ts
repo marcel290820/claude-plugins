@@ -22,6 +22,8 @@ export function verifyContext(open: readonly string[]): string {
 
 export type News = { holds: readonly string[]; wrong: readonly string[]; did: readonly string[] }
 
+const MEMORY = 'These are facts the user checked: if you keep a memory, save any that will still matter in later sessions, a wrong one with what is true instead.'
+
 // What the person marked since Claude last heard, for their next prompt to carry; undefined when nothing.
 export function newsContext({ holds, wrong, did }: News): string | undefined {
   const quote = (list: readonly string[]) => list.map(one => `"${one}"`).join('; ')
@@ -29,6 +31,8 @@ export function newsContext({ holds, wrong, did }: News): string | undefined {
     holds.length > 0 ? `- Confirmed these assumptions hold: ${quote(holds)}` : '',
     wrong.length > 0 ? `- Marked these assumptions wrong (the prompt may say what is true): ${quote(wrong)}` : '',
     did.length > 0 ? `- Did these steps themselves: ${quote(did)}` : '',
+    // Assumptions the person settled are the facts most worth keeping, so Claude's own memory gets the chance.
+    holds.length + wrong.length > 0 ? MEMORY : '',
   ].filter(line => line !== '')
 
   return lines.length === 0 ? undefined : ['What the user marked in the debrief since your last reply:', ...lines].join('\n')
