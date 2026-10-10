@@ -1,6 +1,6 @@
 {
   "name": "counterpart-review",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Claude Opus 5.5 (xhigh) reviews every commit after a secrets scan and the project check; the review skill asks it about anything else.",
   "skills": "./skills/",
   "hooks": "./hooks/codex.json",

@@ -73,9 +73,11 @@ for r in codex claude; do
   expect "$r: leak denied" 'gitleaks' "$(FAKE_SCAN=1 gate $r 'git commit -m x')"
   [ "$(calls)" = "$n" ] && ok || bad "$r: review must not run when gitleaks fails"
   expect "$r: unstaged leak denied" 'gitleaks' "$(FAKE_SCAN_UNSTAGED=1 gate $r 'git commit -am x')"
-  expect "$r: clean passes" "" "$(gate $r 'git commit -m x')"
+  out=$(gate $r 'git commit -m x')
+  expect "$r: clean passes" "" "$(printf '%s' "$out" | decision)"
+  expect "$r: pass shows the verdict" 'reviewed the commit: fine' "$(printf '%s' "$out" | jq -r '.systemMessage')"
   [ "$(tail -n 1 "$FAKE_LOG")" = "$r" ] && ok || bad "$r: wrong reviewer binary ran"
-  expect "$r: rtk prefix gated" "" "$(gate $r 'rtk git commit -m x')"
+  expect "$r: rtk prefix gated" "" "$(gate $r 'rtk git commit -m x' | decision)"
   [ "$(calls)" = "$((n+2))" ] && ok || bad "$r: review should run on both commits, ran $(($(calls)-n))"
   out=$(FAKE_MODE=block gate $r 'git commit -m x')
   expect "$r: findings deny" 'fake finding' "$out"
@@ -117,6 +119,16 @@ expect "claude: crash warns" 'review crashed' "$(printf '%s' "$out" | jq -r '.sy
 expect "claude: crash allows" "" "$(printf '%s' "$out" | decision)"
 expect "claude: usage limit warns" 'usage limit' "$(FAKE_MODE=limit gate claude 'git commit -m x' | jq -r '.systemMessage')"
 
+# Findings carry into the next review of that repository, which checks them first; a pass clears them.
+FAKE_MODE=block gate codex 'git commit -m x' >/dev/null
+gate codex 'git commit -m x' >/dev/null
+grep -q '<earlier-findings>' "$FAKE_LOG.prompt" && grep -q 'fake finding' "$FAKE_LOG.prompt" \
+  && ok || bad "the review after a block must carry the earlier findings"
+gate codex 'git commit -m x' >/dev/null
+grep -q '<earlier-findings>' "$FAKE_LOG.prompt" && bad "a pass must clear the earlier findings" || ok
+expect "findings tell the agent to escalate a wrong one" 'tell the user why' "$(FAKE_MODE=block gate codex 'git commit -m x')"
+gate codex 'git commit -m x' >/dev/null
+
 # The prompt carries the command and the unstaged diff that -a also commits.
 echo UNSTAGED_MARK > x.txt
 gate codex 'git commit -am x' >/dev/null
@@ -139,8 +151,8 @@ mkdir -p "$T/wt/.codex" && printf '#!/bin/sh\necho wt-red; exit 3\n' > "$T/wt/.c
 echo y > "$T/wt/y.txt" && git -C "$T/wt" add y.txt
 expect "-C runs that repo's check" 'wt-red' "$(CLAUDE_PROJECT_DIR="$T/repo" gate codex 'git -C ../wt commit -m x')"
 expect "-C ~/ runs that repo's check" 'wt-red' "$(HOME="$T" CLAUDE_PROJECT_DIR="$T/repo" gate claude 'git -C ~/wt commit -m x')"
-expect "-C in a message ignored" "" "$(gate codex 'git commit -m "see git -C ../wt commit"')"
-expect "cd in a message allowed" "" "$(gate codex 'git commit -m "docs: cd into wt"')"
+expect "-C in a message ignored" "" "$(gate codex 'git commit -m "see git -C ../wt commit"' | decision)"
+expect "cd in a message allowed" "" "$(gate codex 'git commit -m "docs: cd into wt"' | decision)"
 
 # Codex runs a command in tool_input.workdir when set; that is the repository to check.
 expect "workdir is the repo checked" 'wt-red' "$(printf '{"cwd":"%s","tool_input":{"command":"git commit -m x","workdir":"%s"}}' "$T/repo" "$T/wt" | "$S/commit-gate.sh" claude)"

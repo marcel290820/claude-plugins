@@ -22,7 +22,7 @@
     {
       "name": "counterpart-review",
       "source": "./plugins/counterpart-review",
-      "description": "Codex reviews every commit after a secrets scan and the project check; also on demand."
+      "description": "The other agent reviews every commit after a secrets scan and the project check; also on demand."
     }
   ]
 }

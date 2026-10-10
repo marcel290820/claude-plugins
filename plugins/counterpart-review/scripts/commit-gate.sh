@@ -5,7 +5,8 @@
 # 1. gitleaks scans the staged diff for secrets (skipped when gitleaks is missing).
 # 2. The project check (project-check.sh) must be green for that repository.
 # 3. The counterpart reviews the commit headless and read-only (review.sh).
-# Findings or a missing verdict -> permissionDecision deny.
+# Pass -> allowed, the reviewer's summary shown to the person (systemMessage).
+# Findings or a missing verdict -> permissionDecision deny; the findings go to the next review of that repository.
 # Reviewer could not run: in Claude Code (reviewer codex) a usage limit asks and anything else denies
 # (fail closed). Codex rejects permissionDecision "ask", so there (reviewer claude) it warns through
 # systemMessage and lets the commit through rather than locking every commit.
@@ -31,7 +32,8 @@ ask() {
   jq -n --arg r "$1" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"ask",permissionDecisionReason:$r}}'
   exit 0
 }
-warn_and_allow() {
+# Shows the person a line and lets the commit through.
+note_and_allow() {
   jq -n --arg m "$1" '{systemMessage:$m}'
   exit 0
 }
@@ -93,23 +95,41 @@ MAX=150000
 [ ${#DIFF} -gt $MAX ] && DIFF="${DIFF:0:$MAX}
 [diff truncated at $MAX bytes]"
 
-PROMPT="You are a strict pre-commit reviewer. Below is a git commit command and the changes it may commit in $ROOT; judge only the changes this command commits. Read files in the repository for context when needed. Look for: logic errors, race conditions, unhandled error paths or swallowed exceptions, secrets or credentials, a bugfix or non-trivial logic change (a branch, loop, parser, money or security path) with no matching test change - a trivial helper, one-liner, or pure type/doc change needs no test and missing coverage alone is never grounds to fail a commit, and changed signatures whose other call sites were not updated (grep for callers). Ignore style and formatting. Docs-only or comment-only diffs pass. Set ok=true when the commit is safe. Set ok=false with reason as a numbered list of 'file:line - problem - fix' when it must not go in. Strict on correctness, lenient on taste.
+# The findings of the last review that blocked a commit here, so the next review checks those fixes rather than
+# starting over (a fresh reviewer tends to raise new points each round). Kept six hours; a pass clears them.
+FINDINGS="$(git rev-parse --git-dir)/counterpart-review-findings"
+EARLIER=""
+if [ -n "$(find "$FINDINGS" -mmin -360 2>/dev/null)" ]; then
+  EARLIER="
+
+An earlier review of this work blocked a commit with the findings below. Check first whether each is fixed now. Raise anything else only when it is a real defect in these changes, not a matter of taste.
+<earlier-findings>
+$(cat "$FINDINGS")
+</earlier-findings>"
+fi
+
+PROMPT="You are a strict pre-commit reviewer. Below is a git commit command and the changes it may commit in $ROOT; judge only the changes this command commits. Read files in the repository for context when needed. Look for: logic errors, race conditions, unhandled error paths or swallowed exceptions, secrets or credentials, a bugfix or non-trivial logic change (a branch, loop, parser, money or security path) with no matching test change - a trivial helper, one-liner, or pure type/doc change needs no test and missing coverage alone is never grounds to fail a commit, and changed signatures whose other call sites were not updated (grep for callers). Ignore style and formatting. Docs-only or comment-only diffs pass. Set ok=true when the commit is safe. Set ok=false with reason as a numbered list of 'file:line - problem - fix' when it must not go in. Strict on correctness, lenient on taste.$EARLIER
 
 $DIFF"
 
 OUT=$(printf '%s' "$PROMPT" | "$H/review.sh" "$REVIEWER")
 RC=$?
+NAME=$([ "$REVIEWER" = codex ] && echo "Codex" || echo "Claude")
 case $RC in
-  0) exit 0;;
-  1) deny "Commit review found issues:
-$OUT";;
+  0) rm -f "$FINDINGS"
+     note_and_allow "$NAME reviewed the commit: $(printf '%s' "$OUT" | head -c 600)";;
+  1) printf '%s\n' "$OUT" > "$FINDINGS"
+     deny "$NAME's commit review found issues:
+$OUT
+
+Fix them and commit again; the next review checks these fixes first. If a finding is wrong, do not work around the gate: tell the user why and let them decide.";;
   4) deny "Commit review returned no verdict. Retry the commit:
 $OUT";;
 esac
 # 2 or 3: the reviewer failing is not the same as the reviewer objecting.
 UNREVIEWED="The staged changes passed the secrets scan and the project check, but the commit reviewer could not run. Nothing was found wrong with this commit - it simply was not reviewed.
 $OUT"
-[ "$REVIEWER" = claude ] && warn_and_allow "$UNREVIEWED"
+[ "$REVIEWER" = claude ] && note_and_allow "$UNREVIEWED"
 # A usage limit would lock every commit until it resets, so hand the call to the user.
 [ $RC -eq 3 ] && ask "$UNREVIEWED
 Approve to commit unreviewed, or deny and retry after the limit resets."
