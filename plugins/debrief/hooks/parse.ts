@@ -49,14 +49,15 @@ export function newsContext({ holds, wrong, steps }: News): string | undefined {
 export const correction = (text: string) => `The assumption "${text}" is wrong: `
 
 // "## Next steps", "**Next steps:**", "Next steps:", or the bare words on a line; group 1 is any text after them.
+// Four spaces in is indented code, as in markdown.
 const HEADING =
-  /^\s*(?:#{1,6}\s+(?:\*\*)?next steps(?:\*\*)?:?|(?:\*\*|__)next steps:?(?:\*\*|__):?|next steps:|next steps(?=\s*$))\s*(.*)$/i
+  /^ {0,3}(?:#{1,6}\s+(?:\*\*)?next steps(?:\*\*)?:?|(?:\*\*|__)next steps:?(?:\*\*|__):?|next steps:|next steps(?=\s*$))\s*(.*)$/i
 const MARKER = /^\s*(?:[-*+]|\d+[.)])\s+/
 
 // Every non-blank line after the reply's last Next steps heading is a step; "none" is no step.
 export function parseSteps(answer: string): Step[] {
   const lines = answer.split('\n')
-  const start = lines.findLastIndex(line => HEADING.test(line))
+  const start = lastHeading(lines)
 
   if (start === -1) {
     return []
@@ -84,6 +85,21 @@ function fence(open: string | undefined, line: string): string | undefined {
   return open === undefined ? mark : mark[0] === open[0] && mark.length >= open.length ? undefined : open
 }
 
+// The line of the last Next steps heading outside code blocks, or -1.
+function lastHeading(lines: readonly string[]): number {
+  let open: string | undefined
+  let found = -1
+  lines.forEach((line, index) => {
+    const before = open
+    open = fence(open, line)
+    if (before === undefined && open === undefined && HEADING.test(line)) {
+      found = index
+    }
+  })
+
+  return found
+}
+
 // Every ASSUMPTION: line outside code blocks, once each.
 export function parseAssumptions(text: string): string[] {
   let open: string | undefined
@@ -97,6 +113,28 @@ export function parseAssumptions(text: string): string[] {
   }
 
   return found
+}
+
+// A reply block as the transcript draws it: without its Next steps section or its ASSUMPTION: markers, which the
+// band shows. Text before a marker on its line stays, and code stays as written. The stored reply keeps both.
+// Hiding and parsing read the same markers, so what is cut shows in the band (or ctrl+o) instead.
+// ponytail: a marker in indented or inline code is cut and read too; a Next steps heading mid-reply cuts its block's
+// rest. Mask such code before matching if that bites.
+export function hide(text: string): string {
+  const lines = text.split('\n')
+  const start = lastHeading(lines)
+  let open: string | undefined
+  const kept = (start === -1 ? lines : lines.slice(0, start)).flatMap(line => {
+    open = fence(open, line)
+    const at = open !== undefined ? undefined : ASSUMPTION.exec(line)?.index
+    if (at === undefined) {
+      return [line]
+    }
+    const before = line.slice(0, at).trimEnd()
+    return before.replace(MARKER, '').replace(/[*_\s]/g, '') === '' ? [] : [before.replace(/[*_]+$/, '').trimEnd()]
+  })
+
+  return kept.join('\n').trimEnd()
 }
 
 export type Verdict = { kind: 'holds' | 'wrong' | 'unsure'; claim: string; note: string }

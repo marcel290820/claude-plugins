@@ -6,6 +6,7 @@ import {
   correction,
   fit,
   FORMAT,
+  hide,
   named,
   newsContext,
   parseAssumptions,
@@ -90,6 +91,14 @@ function cycle($: EngineInterface, text: string) {
     const rest = list.filter(one => one.text !== text)
     return mark === undefined ? rest : [...rest, { text, mark, isTold: false }]
   })
+}
+
+// Marks every open step for Claude to do next; marked ones keep their mark.
+function allNext($: EngineInterface, texts: readonly string[]) {
+  return update($, marks, list => [
+    ...list,
+    ...texts.filter(text => !list.some(one => one.text === text)).map(text => ({ text, mark: 'next' as const, isTold: false })),
+  ])
 }
 
 // New assumptions join the person's latest prompt; one said again while open joins it again. Claude's verdict lines
@@ -213,6 +222,21 @@ export const register: Register = on => {
     return {}
   })
 
+  // The transcript draws a reply without what the band shows, on the surfaces that draw the band; the stored reply,
+  // and ctrl+o, keep it all. A block left empty draws nothing.
+  on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
+    if (e.props.isSummary === true || (e.surface !== 'terminal' && e.surface !== 'desktop')) {
+      return next(e)
+    }
+    const text = hide(e.props.text)
+    if (text === e.props.text.trimEnd()) {
+      return next(e)
+    }
+    const { Box } = $.ui.resolve(e)
+
+    return text === '' ? <Box /> : next({ ...e, props: { ...e.props, text } })
+  })
+
   // Above the prompt, one number per row, pressed by a bare digit in the empty prompt: a step cycles through its
   // marks, an assumption steps through holds and wrong. Nothing here waits on an answer:
   // the steps follow Claude's latest reply, and an unanswered assumption only stays in view.
@@ -257,6 +281,9 @@ export const register: Register = on => {
           <Box flexDirection="column">
             <Box gap={2}>
               <Text bold>Next steps</Text>
+              {rows.length > 1 && (
+                <Button key="steps-all" plain hotkey="0" label="all ▶" onPress={() => allNext($, rows.map(step => step.text))} />
+              )}
               <Text dimColor>press: ▶ you next · ✗ drop · ✓ I do it · ? talk first</Text>
             </Box>
             {rows.map((step, index) => {

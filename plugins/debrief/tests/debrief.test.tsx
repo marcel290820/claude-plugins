@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import { absorb } from '../hooks/register'
-import { fit, FORMAT, named, newsContext, parseAssumptions, parseSteps, parseVerdicts, VERIFY } from '../hooks/parse'
+import { fit, FORMAT, hide, named, newsContext, parseAssumptions, parseSteps, parseVerdicts, VERIFY } from '../hooks/parse'
 
 const BAND = {
   plugin: 'debrief',
@@ -203,7 +203,7 @@ test('steps that differ only in case keep their own marks', async ($, on) => {
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
 
   await ui.press({ key: 'step-1' })
-  expect((await ui.findAll({ type: 'Button' })).map(one => one.text)).toEqual(['▶ Delete Report.txt', '○ Delete report.txt'])
+  expect((await ui.findAll({ type: 'Button' })).map(one => one.text).slice(1)).toEqual(['▶ Delete Report.txt', '○ Delete report.txt'])
 })
 
 test('the next prompt tells Claude each step\'s mark once', async ($, on) => {
@@ -421,6 +421,60 @@ test('a resumed session shows the steps its last reply left', async ($, on) => {
 
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ key: 'step-2' })).toBeDefined()
+})
+
+test('the transcript hides the Next steps section and the ASSUMPTION: markers, never in code', () => {
+  expect(hide(`Fixed it.\nASSUMPTION: port 8080 is free\nIt runs on 8080. ASSUMPTION: the VPS matches\n- **ASSUMPTION:** UTC\n\n${ANSWER}`)).toBe(
+    'Fixed it.\nIt runs on 8080.\n\nDone.',
+  )
+  expect(hide('Write `ASSUMPTION:` lines.\n```\nASSUMPTION: an example\n```')).toBe('Write `ASSUMPTION:` lines.\n```\nASSUMPTION: an example\n```')
+  expect(hide('## Next steps\n1. Push')).toBe('')
+  // Code stays as written: a heading in a fence is an example, and its blank lines are content.
+  const code = 'Like this:\n```md\n## Next steps\n1. Push\n```\nThen more.'
+  expect(hide(code)).toBe(code)
+  expect(parseSteps(code)).toEqual([])
+  const python = 'x = 1\n```py\ns = \"\"\"a\n\n\n\nb\"\"\"\n```\nASSUMPTION: one'
+  expect(hide(python)).toBe('x = 1\n```py\ns = \"\"\"a\n\n\n\nb\"\"\"\n```')
+  const indented = 'Example:\n\n    ## Next steps\n    1. Push\n\nThat is all.'
+  expect(hide(indented)).toBe(indented)
+  expect(hide('No markers here.')).toBe('No markers here.')
+})
+
+test('a reply draws without what the band shows, and a block left empty draws nothing', async ($, on) => {
+  on('ui.render', { component: 'AssistantMessage' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>{e.props.text}</Text>
+  })
+  const message = (text: string) =>
+    ({ plugin: 'debrief', component: 'AssistantMessage', surface: 'terminal', props: { text, isFirstOfReply: true } }) as const
+
+  const ui = await $.ui.mount(message(`Fixed it.\n${ANSWER}`))
+  expect(await ui.find({ type: 'Text', text: 'Fixed it.\nDone.' })).toBeDefined()
+  await ui.unmount()
+  const empty = await $.ui.mount(message('ASSUMPTION: alone'))
+  expect(await empty.findAll({ type: 'Text' })).toHaveLength(0)
+  await empty.unmount()
+  // Where no band draws, the reply keeps it all.
+  const vscode = await $.ui.mount({ ...message('ASSUMPTION: kept'), surface: 'vscode' })
+  expect(await vscode.find({ type: 'Text', text: 'ASSUMPTION: kept' })).toBeDefined()
+  await vscode.unmount()
+  const summary = await $.ui.mount({ ...message('ASSUMPTION: kept'), props: { text: 'ASSUMPTION: kept', isFirstOfReply: true, isSummary: true } })
+  expect(await summary.find({ type: 'Text', text: 'ASSUMPTION: kept' })).toBeDefined()
+})
+
+test('0 marks every open step next and leaves marked ones alone', async ($, on) => {
+  world(on)
+  await $.turn.complete(answer(ANSWER))
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+
+  await ui.press({ key: 'step-2' })
+  await ui.press({ key: 'step-2' })
+  await ui.press({ key: 'steps-all' })
+  expect((await ui.findAll({ type: 'Button' })).map(one => one.text).slice(1)).toEqual([
+    '▶ Run the check script',
+    '✗ Commit the change',
+    '▶ Restart Codex',
+  ])
 })
 
 test('the system prompt learns the forms the band reads', async ($, on) => {
