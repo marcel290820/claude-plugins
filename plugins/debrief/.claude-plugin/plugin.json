@@ -1,0 +1,6 @@
+{
+  "name": "debrief",
+  "version": "0.3.0",
+  "description": "Claude's debrief above the prompt after each turn: its next steps, your manual ones, and the assumptions it made, one key each.",
+  "types": "./types/index.d.ts"
+}

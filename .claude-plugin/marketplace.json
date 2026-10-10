@@ -5,14 +5,9 @@
   },
   "plugins": [
     {
-      "name": "next-steps",
-      "source": "./plugins/next-steps",
-      "description": "Shows the reply's Next steps above the prompt; a digit fills one in."
-    },
-    {
-      "name": "assumptions",
-      "source": "./plugins/assumptions",
-      "description": "Collects ASSUMPTION: markers into a pane to confirm or correct."
+      "name": "debrief",
+      "source": "./plugins/debrief",
+      "description": "Claude's debrief above the prompt after each turn: its next steps, your manual ones, and its assumptions, one key each."
     },
     {
       "name": "tips",
