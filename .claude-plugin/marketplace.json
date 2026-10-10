@@ -7,7 +7,7 @@
     {
       "name": "debrief",
       "source": "./plugins/debrief",
-      "description": "Claude's debrief above the prompt after each turn: its next steps, your manual ones, and its assumptions, one key each."
+      "description": "Claude's debrief above the prompt after each turn: its next steps to mark and its assumptions to confirm, one key each."
     },
     {
       "name": "tips",
