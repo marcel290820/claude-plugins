@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Assumption, Done, Step, Verdict } from '../types'
+import type { Assumption, Mark, Marked, Step, Verdict } from '../types'
 import {
   correction,
   fit,
@@ -21,7 +21,7 @@ const PANE = 'assumptions'
 const SHOWN = 4
 
 const steps = atom({ plugin: 'debrief', key: 'steps' } as const, [] as Step[])
-const done = atom({ plugin: 'debrief', key: 'done' } as const, [] as Done[])
+const marks = atom({ plugin: 'debrief', key: 'marks' } as const, [] as Marked[])
 const assumptions = atom({ plugin: 'debrief', key: 'assumptions' } as const, [] as Assumption[])
 // Counts the person's prompts; an assumption carries the count it was made under.
 const round = atom({ plugin: 'debrief', key: 'round' } as const, 0)
@@ -78,10 +78,18 @@ async function press($: EngineInterface, text: string) {
   }
 }
 
-function tick($: EngineInterface, text: string) {
-  return update($, done, list =>
-    list.some(one => same(one.text, text)) ? list.filter(one => !same(one.text, text)) : [...list, { text, isTold: false }],
-  )
+const CYCLE: readonly (Mark | undefined)[] = [undefined, 'next', 'drop', 'mine', 'chat']
+
+// One key walks a step through open, next, drop, mine, chat and back to open. Nothing goes into the prompt, so the
+// digits keep working; the next prompt tells Claude. The step is taken from the stored mark, so two quick presses
+// move it two. Steps match by exact text: two that differ only in case are two actions.
+function cycle($: EngineInterface, text: string) {
+  return update($, marks, list => {
+    const was = list.find(one => one.text === text)?.mark
+    const mark = CYCLE[(CYCLE.indexOf(was) + 1) % CYCLE.length]
+    const rest = list.filter(one => one.text !== text)
+    return mark === undefined ? rest : [...rest, { text, mark, isTold: false }]
+  })
 }
 
 // New assumptions join the person's latest prompt; one said again while open joins it again. Claude's verdict lines
@@ -135,9 +143,11 @@ export const register: Register = on => {
   // carries the open assumptions.
   on('prompt.submit', async ($, e, next) => {
     const isPerson = e.origin.kind === 'composer' || e.origin.kind === 'bridge'
-    const [all, ticks] = await Promise.all([read($, assumptions), read($, done)])
+    const [all, marked] = await Promise.all([read($, assumptions), read($, marks)])
     const unheard = (verdict: Verdict) => all.filter(one => one.verdict === verdict && one.told !== verdict).map(one => one.text)
-    const sent = { holds: unheard('holds'), wrong: unheard('wrong'), did: ticks.filter(one => !one.isTold).map(one => one.text) }
+    const unsent = (mark: Mark) => marked.filter(one => one.mark === mark && !one.isTold).map(one => one.text)
+    const byMark = { next: unsent('next'), drop: unsent('drop'), mine: unsent('mine'), chat: unsent('chat') }
+    const sent = { holds: unheard('holds'), wrong: unheard('wrong'), steps: byMark }
     const news = isPerson ? newsContext(sent) : undefined
     const open = all.filter(isOpen).map(one => one.text)
     const isVerify = open.length > 0 && e.text.split('\n').some(line => line.trim().toLowerCase().startsWith(VERIFY.toLowerCase()))
@@ -155,7 +165,7 @@ export const register: Register = on => {
       const isSent = (one: Assumption) =>
         (one.verdict === 'holds' && sent.holds.includes(one.text)) || (one.verdict === 'wrong' && sent.wrong.includes(one.text))
       await update($, assumptions, list => list.map(one => (isSent(one) ? { ...one, told: one.verdict } : one)))
-      await update($, done, list => list.map(one => (sent.did.includes(one.text) ? { ...one, isTold: true } : one)))
+      await update($, marks, list => list.map(one => (byMark[one.mark].includes(one.text) ? { ...one, isTold: true } : one)))
     }
 
     return entered
@@ -178,7 +188,7 @@ export const register: Register = on => {
     if (e.agentId === undefined && e.reason === 'answer') {
       const found = parseSteps(e.answer)
       await update($, steps, () => found)
-      await update($, done, list => list.filter(one => !one.isTold))
+      await update($, marks, list => list.filter(one => !one.isTold))
     }
 
     return next(e)
@@ -188,7 +198,7 @@ export const register: Register = on => {
     if (e.reason === 'clear') {
       await Promise.all([
         update($, steps, () => []),
-        update($, done, () => []),
+        update($, marks, () => []),
         update($, assumptions, () => []),
         update($, round, () => 0),
       ])
@@ -203,23 +213,22 @@ export const register: Register = on => {
     return {}
   })
 
-  // Above the prompt, one number per row, pressed by a bare digit in the empty prompt: Claude's steps go into the
-  // prompt, the person's tick off, an assumption steps through holds and wrong. Nothing here waits on an answer:
+  // Above the prompt, one number per row, pressed by a bare digit in the empty prompt: a step cycles through its
+  // marks, an assumption steps through holds and wrong. Nothing here waits on an answer:
   // the steps follow Claude's latest reply, and an unanswered assumption only stays in view.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey || e.props.view.agentId !== undefined) {
       return next(e)
     }
-    const [list, ticks, all, now] = await Promise.all([read($, steps), read($, done), read($, assumptions), read($, round)])
-    const mine = e.props.isWorking ? [] : list.filter(step => !step.isYours)
-    const yours = e.props.isWorking ? [] : list.filter(step => step.isYours)
+    const [list, marked, all, now] = await Promise.all([read($, steps), read($, marks), read($, assumptions), read($, round)])
+    const rows = e.props.isWorking ? [] : list
     // Rows keep their place while the person answers them: a settled one stays until the next prompt.
     // The oldest rows first, so one arriving later never moves a row's number; one digit stays for the check row.
     const inView = all.filter(one => isOpen(one) || one.settledIn === now)
     const open = all.filter(isOpen)
-    const shown = inView.slice(0, Math.max(0, Math.min(SHOWN, 9 - mine.length - yours.length - (open.length > 0 ? 1 : 0))))
+    const shown = inView.slice(0, Math.max(0, Math.min(SHOWN, 9 - rows.length - (open.length > 0 ? 1 : 0))))
 
-    if (mine.length + yours.length + shown.length === 0) {
+    if (rows.length + shown.length === 0) {
       return next(e)
     }
 
@@ -227,7 +236,14 @@ export const register: Register = on => {
     // "1: " and a mark take five cells; the full text still goes to the prompt.
     const room = e.props.bodyColumns - 5
     const digit = (index: number) => (index < 9 ? String(index + 1) : undefined)
-    const isDone = (text: string) => ticks.some(one => same(one.text, text))
+    const markOf = (text: string) => marked.find(one => one.text === text)?.mark ?? 'open'
+    const STEP = {
+      open: { glyph: '○', color: undefined, isDim: false },
+      next: { glyph: '▶', color: 'suggestion', isDim: false },
+      drop: { glyph: '✗', color: 'error', isDim: true },
+      mine: { glyph: '✓', color: 'success', isDim: true },
+      chat: { glyph: '?', color: 'warning', isDim: false },
+    } as const
     const MARK = {
       open: { glyph: '?', color: 'warning' },
       holds: { glyph: '✓', color: 'success' },
@@ -237,43 +253,27 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column">
         {await next(e)}
-        {mine.length + yours.length > 0 && (
+        {rows.length > 0 && (
           <Box flexDirection="column">
             <Box gap={2}>
               <Text bold>Next steps</Text>
-              {mine.length > 1 && (
-                <Button key="steps-all" plain hotkey="0" label="all" onPress={() => put($, mine.map(step => step.text).join('\n'))} />
-              )}
-              {yours.length > 0 && <Text dimColor>○ is yours: press it once done</Text>}
+              <Text dimColor>press: ▶ you next · ✗ drop · ✓ I do it · ? talk first</Text>
             </Box>
-            {mine.map((step, index) => (
-              <Button
-                key={`step-${index + 1}`}
-                plain
-                hotkey={digit(index)}
-                label={fit(step.text, room + 2)}
-                onPress={() => put($, step.text)}
-              />
-            ))}
-            {yours.map((step, index) => {
-              const isTicked = isDone(step.text)
+            {rows.map((step, index) => {
+              const mark = STEP[markOf(step.text)]
               return (
-                <Button
-                  key={`yours-${index + 1}`}
-                  plain
-                  hotkey={digit(mine.length + index)}
-                  label={step.text}
-                  onPress={() => tick($, step.text)}
-                >
-                  <Text color={isTicked ? 'success' : 'warning'}>{isTicked ? '✓' : '○'}</Text>{' '}
-                  <Text dimColor={isTicked}>{fit(step.text, room)}</Text>
+                <Button key={`step-${index + 1}`} plain hotkey={digit(index)} label={step.text} onPress={() => cycle($, step.text)}>
+                  <Text color={mark.color}>{mark.glyph}</Text>{' '}
+                  <Text dimColor={mark.isDim} strikethrough={mark === STEP.drop}>
+                    {fit(step.text, room)}
+                  </Text>
                 </Button>
               )
             })}
           </Box>
         )}
         {shown.length > 0 && (
-          <Box flexDirection="column" marginTop={mine.length + yours.length > 0 ? 1 : 0}>
+          <Box flexDirection="column" marginTop={rows.length > 0 ? 1 : 0}>
             <Box gap={2}>
               <Text bold>Assumptions</Text>
               <Text dimColor>
@@ -288,7 +288,7 @@ export const register: Register = on => {
                 <Button
                   key={`assumption-${index + 1}`}
                   plain
-                  hotkey={digit(mine.length + yours.length + index)}
+                  hotkey={digit(rows.length + index)}
                   label={one.text}
                   onPress={() => press($, one.text)}
                 >
@@ -304,7 +304,7 @@ export const register: Register = on => {
                 key="verify"
                 plain
                 dimColor
-                hotkey={digit(mine.length + yours.length + shown.length)}
+                hotkey={digit(rows.length + shown.length)}
                 label={open.length === 1 ? 'Ask Claude to check the open one' : `Ask Claude to check the ${open.length} open ones`}
                 onPress={() => put($, VERIFY)}
               />

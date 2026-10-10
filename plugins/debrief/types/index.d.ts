@@ -1,8 +1,12 @@
-// One step of the reply's Next steps; `isYours` marks one only the person can take.
-export type Step = { text: string; isYours: boolean }
+// One step of the reply's Next steps.
+export type Step = { text: string }
 
-// A step of the person's own they ticked off; `isTold` once their next prompt told Claude.
-export type Done = { text: string; isTold: boolean }
+// What the person made of a step, in the order one key cycles through: Claude does it next, drop it, they do it
+// themselves, they want to talk it through. A step with no mark is open.
+export type Mark = 'next' | 'drop' | 'mine' | 'chat'
+
+// A step the person marked; `isTold` once their next prompt told Claude.
+export type Marked = { text: string; mark: Mark; isTold: boolean }
 
 export type Verdict = 'holds' | 'wrong'
 
@@ -22,6 +26,6 @@ export type Assumption = {
 
 declare module 'claude-code' {
   interface PluginState {
-    debrief: { steps: Step[]; done: Done[]; assumptions: Assumption[]; round: number }
+    debrief: { steps: Step[]; marks: Marked[]; assumptions: Assumption[]; round: number }
   }
 }

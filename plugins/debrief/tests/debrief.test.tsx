@@ -31,7 +31,7 @@ const PANE = {
 } as const
 const COMPOSER = { kind: 'composer' } as const
 
-const ANSWER = 'Done.\n\n## Next steps\n- Run the **check** script\n2. Commit the change\n3. **You:** Restart Codex\n'
+const ANSWER = 'Done.\n\n## Next steps\n- Run the **check** script\n2. Commit the change\n3. Restart Codex\n'
 
 // The engine beneath the plugin: the prompt box as a draft (the person may type once, right after the first read), and
 // a turn that completes with an answer.
@@ -71,15 +71,11 @@ const reply = (text: string, agentId?: string) => ({
   ...(agentId === undefined ? {} : { agentId }),
 })
 
-test('steps parse from every heading form, and You: marks the person\'s own', () => {
-  expect(parseSteps(ANSWER)).toEqual([
-    { text: 'Run the check script', isYours: false },
-    { text: 'Commit the change', isYours: false },
-    { text: 'Restart Codex', isYours: true },
-  ])
+test('steps parse from every heading form', () => {
+  expect(parseSteps(ANSWER)).toEqual([{ text: 'Run the check script' }, { text: 'Commit the change' }, { text: 'Restart Codex' }])
   expect(parseSteps('Text\n\n**Next steps:** none')).toEqual([])
   expect(parseSteps('Text\n\n**Next steps**\nnone')).toEqual([])
-  expect(parseSteps('Next steps: push the branch')).toEqual([{ text: 'push the branch', isYours: false }])
+  expect(parseSteps('Next steps: push the branch')).toEqual([{ text: 'push the branch' }])
   expect(parseSteps('Next steps are unclear here.')).toEqual([])
   expect(parseSteps('No section at all')).toEqual([])
 })
@@ -144,72 +140,86 @@ test('the ledger takes new assumptions into the round, and Claude\'s verdicts se
 })
 
 test('what the person marked is said in one block, and nothing when nothing was marked', () => {
-  expect(newsContext({ holds: ['a', 'b'], wrong: ['c'], did: ['Restart Codex'] })).toBe(
+  const none = { next: [], drop: [], mine: [], chat: [] }
+  expect(newsContext({ holds: ['a', 'b'], wrong: ['c'], steps: { ...none, mine: ['Restart Codex'], chat: ['Push'] } })).toBe(
     'What the user marked in the debrief since your last reply:\n' +
       '- Confirmed these assumptions hold: "a"; "b"\n' +
       '- Marked these assumptions wrong (the prompt may say what is true): "c"\n' +
-      '- Did these steps themselves: "Restart Codex"\n' +
+      '- Takes these steps on themselves: "Restart Codex"\n' +
+      '- Wants to talk these steps over first (the prompt may say more): "Push"\n' +
       'These are facts the user checked: if you keep a memory, save any that will still matter in later sessions, a wrong one with what is true instead.',
   )
-  expect(newsContext({ holds: [], wrong: [], did: [] })).toBeUndefined()
+  expect(newsContext({ holds: [], wrong: [], steps: none })).toBeUndefined()
 })
 
-test('the band lists the steps: a digit fills the prompt with one of Claude\'s, or 0 with all', async ($, on) => {
+test('a digit cycles a step through next, drop, mine, chat and back to open, never touching the prompt', async ($, on) => {
   const { box } = world(on)
   await $.turn.complete(answer(ANSWER))
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...BAND, surface })
     expect(await ui.find({ type: 'Button', key: 'step-2' })).toMatchObject({ props: { hotkey: '2', label: 'Commit the change' } })
-    expect(await ui.find({ key: 'yours-1' })).toMatchObject({ props: { hotkey: '3' }, text: '○ Restart Codex' })
-    await ui.press({ key: 'step-2' })
-    expect(box.text).toBe('Commit the change')
-    box.text = ''
-    await ui.press({ key: 'steps-all' })
-    expect(box.text).toBe('Run the check script\nCommit the change')
-    box.text = ''
+    const seen = [(await ui.find({ key: 'step-2' }))?.text]
+    for (let press = 0; press < 5; press++) {
+      await ui.press({ key: 'step-2' })
+      seen.push((await ui.find({ key: 'step-2' }))?.text)
+    }
+    expect(seen).toEqual([
+      '○ Commit the change',
+      '▶ Commit the change',
+      '✗ Commit the change',
+      '✓ Commit the change',
+      '? Commit the change',
+      '○ Commit the change',
+    ])
+    expect(box.text).toBe('')
     await ui.unmount()
   }
 })
 
-test('two quick presses on steps put both in the prompt', async ($, on) => {
-  const { box } = world(on)
+test('two quick presses on a step move it two marks', async ($, on) => {
+  world(on)
   await $.turn.complete(answer(ANSWER))
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
 
-  await Promise.all([ui.press({ key: 'step-1' }), ui.press({ key: 'step-2' })])
-  expect(box.text).toBe('Run the check script\nCommit the change')
+  await Promise.all([ui.press({ key: 'step-1' }), ui.press({ key: 'step-1' })])
+  expect(await ui.find({ key: 'step-1' })).toMatchObject({ text: '✗ Run the check script' })
 })
 
-test('a press never writes over what was typed meanwhile', async ($, on) => {
+test('a correction never writes over what was typed meanwhile', async ($, on) => {
   const { box } = world(on, '', 'typed')
+  await $.prompt.submit({ text: 'go', wait: false, origin: COMPOSER })
+  await $.session.append(reply('ASSUMPTION: port 8080 is free'))
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+
+  await ui.press({ key: 'assumption-1' })
+  await ui.press({ key: 'assumption-1' })
+  expect(box.text).toBe('typedThe assumption "port 8080 is free" is wrong: ')
+})
+
+test('steps that differ only in case keep their own marks', async ($, on) => {
+  world(on)
+  await $.turn.complete(answer('## Next steps\n1. Delete Report.txt\n2. Delete report.txt'))
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+
+  await ui.press({ key: 'step-1' })
+  expect((await ui.findAll({ type: 'Button' })).map(one => one.text)).toEqual(['▶ Delete Report.txt', '○ Delete report.txt'])
+})
+
+test('the next prompt tells Claude each step\'s mark once', async ($, on) => {
+  const { submitted } = world(on)
   await $.turn.complete(answer(ANSWER))
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
 
   await ui.press({ key: 'step-1' })
-  expect(box.text).toBe('typedRun the check script')
-})
-
-test('a press with a draft in the box keeps the draft', async ($, on) => {
-  const { box } = world(on, 'also update the docs')
-  await $.turn.complete(answer(ANSWER))
-  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-
-  await ui.press({ key: 'step-1' })
-  expect(box.text).toBe('also update the docs\nRun the check script')
-})
-
-test('a step of the person\'s ticks off, and their next prompt tells Claude once', async ($, on) => {
-  const { box, submitted } = world(on)
-  await $.turn.complete(answer(ANSWER))
-  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-
-  await ui.press({ key: 'yours-1' })
-  expect(box.text).toBe('')
-  expect(await ui.find({ key: 'yours-1' })).toMatchObject({ text: '✓ Restart Codex' })
+  for (let press = 0; press < 3; press++) {
+    await ui.press({ key: 'step-3' })
+  }
   await $.prompt.submit({ text: 'continue', wait: false, origin: COMPOSER })
   expect(submitted.at(-1)?.context).toEqual([
-    'What the user marked in the debrief since your last reply:\n- Did these steps themselves: "Restart Codex"',
+    'What the user marked in the debrief since your last reply:\n' +
+      '- Wants you to do these steps next: "Run the check script"\n' +
+      '- Takes these steps on themselves: "Restart Codex"',
   ])
   await $.prompt.submit({ text: 'and more', wait: false, origin: COMPOSER })
   expect(submitted.at(-1)?.context).toEqual([])
@@ -307,18 +317,18 @@ test('a prompt typed while Claude works is a new round too, and a reopened verdi
   expect(submitted.at(-1)?.context[0]).toContain('hold: "one"')
 })
 
-test('a step Claude asks for again after hearing it was done shows open again', async ($, on) => {
+test('a step Claude lists again after hearing its mark shows open again', async ($, on) => {
   const { submitted } = world(on)
   await $.turn.complete(answer(ANSWER))
   const first = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  await first.press({ key: 'yours-1' })
+  await first.press({ key: 'step-3' })
   await first.unmount()
   await $.prompt.submit({ text: 'deployed', wait: false, origin: COMPOSER })
   expect(submitted.at(-1)?.context[0]).toContain('"Restart Codex"')
 
   await $.turn.complete(answer(ANSWER))
   const again = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect(await again.find({ key: 'yours-1' })).toMatchObject({ text: '○ Restart Codex' })
+  expect(await again.find({ key: 'step-3' })).toMatchObject({ text: '○ Restart Codex' })
 })
 
 test('the verify line is found after a draft, and verdict lines in a code block are examples', async ($, on) => {

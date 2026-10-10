@@ -1,8 +1,8 @@
-import type { Step } from '../types'
+import type { Mark, Step } from '../types'
 
 // Appended to the main loop's system prompt: the forms this plugin reads, so it works without them in CLAUDE.md.
-export const FORMAT = `The debrief plugin shows the end of each reply above the user's prompt, one key per item: your next steps to send back to you, theirs to tick off, and your assumptions to confirm or correct. Write for it:
-- Next steps: end every reply with a "## Next steps" heading and a numbered list, or "Next steps: none" when nothing is pending. Write each step as a short, specific instruction the user can send back to you word for word ("Commit and push the fix", not "I could commit this"). Start a step only the user can take (a manual check, a decision, a restart, a command you cannot run) with "You:". Most useful first, at most five.
+export const FORMAT = `The debrief plugin shows the end of each reply above the user's prompt, one key per item: your next steps for them to mark (you do it next, drop it, they do it, they want to talk it over), and your assumptions to confirm or correct. Write for it:
+- Next steps: end every reply with a "## Next steps" heading and a numbered list, or "Next steps: none" when nothing is pending. Write each step as a short, specific action, whoever takes it ("Commit and push the fix", not "I could commit this"). Most useful first, at most five.
 - Assumptions: put each unverified assumption you act on on a line of its own, "ASSUMPTION: <a plain statement the user can confirm or refute>", when you make it, so the user can correct it before you build on it.`
 
 // What the verify action puts in the prompt; the open assumptions ride along as context the user does not see.
@@ -20,17 +20,24 @@ export function verifyContext(open: readonly string[]): string {
   ].join('\n')
 }
 
-export type News = { holds: readonly string[]; wrong: readonly string[]; did: readonly string[] }
+export type News = { holds: readonly string[]; wrong: readonly string[]; steps: Readonly<Record<Mark, readonly string[]>> }
+
+const SAID: Record<Mark, string> = {
+  next: 'Wants you to do these steps next',
+  drop: 'Dropped these steps, do not do them',
+  mine: 'Takes these steps on themselves',
+  chat: 'Wants to talk these steps over first (the prompt may say more)',
+}
 
 const MEMORY = 'These are facts the user checked: if you keep a memory, save any that will still matter in later sessions, a wrong one with what is true instead.'
 
 // What the person marked since Claude last heard, for their next prompt to carry; undefined when nothing.
-export function newsContext({ holds, wrong, did }: News): string | undefined {
+export function newsContext({ holds, wrong, steps }: News): string | undefined {
   const quote = (list: readonly string[]) => list.map(one => `"${one}"`).join('; ')
   const lines = [
     holds.length > 0 ? `- Confirmed these assumptions hold: ${quote(holds)}` : '',
     wrong.length > 0 ? `- Marked these assumptions wrong (the prompt may say what is true): ${quote(wrong)}` : '',
-    did.length > 0 ? `- Did these steps themselves: ${quote(did)}` : '',
+    ...(Object.keys(SAID) as Mark[]).map(mark => (steps[mark].length > 0 ? `- ${SAID[mark]}: ${quote(steps[mark])}` : '')),
     // Assumptions the person settled are the facts most worth keeping, so Claude's own memory gets the chance.
     holds.length + wrong.length > 0 ? MEMORY : '',
   ].filter(line => line !== '')
@@ -45,7 +52,6 @@ export const correction = (text: string) => `The assumption "${text}" is wrong: 
 const HEADING =
   /^\s*(?:#{1,6}\s+(?:\*\*)?next steps(?:\*\*)?:?|(?:\*\*|__)next steps:?(?:\*\*|__):?|next steps:|next steps(?=\s*$))\s*(.*)$/i
 const MARKER = /^\s*(?:[-*+]|\d+[.)])\s+/
-const YOURS = /^you:\s*/i
 
 // Every non-blank line after the reply's last Next steps heading is a step; "none" is no step.
 export function parseSteps(answer: string): Step[] {
@@ -60,7 +66,7 @@ export function parseSteps(answer: string): Step[] {
     .map(line => line.replace(MARKER, '').replaceAll('**', '').trim())
     .filter(step => step !== '' && !/^none\b/i.test(step))
     .slice(0, 9)
-    .map(step => ({ text: step.replace(YOURS, ''), isYours: YOURS.test(step) }))
+    .map(text => ({ text }))
 }
 
 // A marker quoted in backticks (`ASSUMPTION:`) is a mention, not an assumption.
