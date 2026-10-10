@@ -59,3 +59,7 @@ Each mod is `plugins/<name>/` with `.claude-plugin/plugin.json`,
 `commit-gate.sh`, and `tests/run.sh` with fake `codex`, `claude` and `gitleaks`
 binaries. `.claude/check.sh` validates every plugin, type-checks and tests the
 mods, and runs `tests/run.sh` where a plugin has one.
+
+Claude Code lays a mod's API types (`.claude-plugin/types/`, ignored by git) when an
+interactive session loads it; `check.sh` lends a new mod the types of one already
+opened. Try a mod live with `claude --plugin-dir plugins/<name>`: saving a file reloads it.
