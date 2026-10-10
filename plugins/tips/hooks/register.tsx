@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { Elements, EngineInterface, Register } from 'claude-code'
 
 import type { Tip, TipsSession } from '../types'
 import { SHEET } from './sheet'
@@ -33,6 +33,7 @@ const PROMPT_TIPS: [RegExp, string, string][] = [
   [/\b(meanwhile|in parallel|in the background)\b/i, 'fork', 'copies this into a background session'],
   [/\b(from|on) my phone\b|\baway from (my )?(desk|computer|laptop)\b/i, 'remote-control', 'drives this session from another device'],
   [/\bhow should (we|i)\b|\b(plan|design) (it|this) (first|before)\b/i, 'plan', 'plans before implementing (shift+tab)'],
+  [/^\s*(what('s| is| are) (an? )?[^/`\n]{2,50}\?\s*$|(explain|eli5) )|\bdifference between\b/i, 'tutor', 'explains it in a side pane and remembers what you learned'],
 ]
 
 const UI_FILE = /\.(tsx|jsx|vue|svelte|css|scss|html)$/
@@ -77,6 +78,16 @@ export function turnTips({ context, fiveHour, isAborted, durationMs, session: s 
     s.prompts >= 10 && { id: 'rename', why: 'names this session so /resume finds it' },
     s.prompts >= 40 && { id: 'recap', why: 'sums up where this long session stands' },
   ].filter((tip): tip is Tip => tip !== false)
+}
+
+// A tip names a command this session can run, or none: plugins and builds differ in what they ship.
+async function runnable($: EngineInterface, tips: Tip[]): Promise<Tip[]> {
+  if (tips.length === 0) {
+    return tips
+  }
+  const names = new Set((await $.command.list()).map(one => one.name))
+
+  return tips.filter(tip => names.has(tip.id))
 }
 
 // Shows the first candidate not yet shown this session, not known by the person, and not too soon after the last tip.
@@ -197,6 +208,40 @@ async function readDigest($: EngineInterface): Promise<Digest | undefined> {
   return isDigest ? (stored as Digest) : undefined
 }
 
+// The sheet's groups and rows that match `query`, in the sheet's order.
+export function sheetFor(query: string): (readonly [string, [string, string][]])[] {
+  const needle = query.trim().toLowerCase()
+
+  return SHEET.map(([group, rows]) => [
+    group,
+    rows.filter(([usage, purpose]) => `${usage} ${purpose}`.toLowerCase().includes(needle)),
+  ] as const).filter(([, rows]) => rows.length > 0)
+}
+
+// What taking a sheet row puts in the prompt: its first spelling up to the first placeholder (`/doctor prompt-audit
+// [path]` keeps `prompt-audit`), a space when arguments follow, then any draft.
+export function commandText(usage: string, draft: string): string {
+  const words = (usage.split(' · ')[0] ?? '').split(' ')
+  const end = words.findIndex(word => /^[<[]/.test(word))
+  const command = end === -1 ? words.join(' ') : `${words.slice(0, end).join(' ')} `
+
+  return draft.trim() === '' ? command : `${command.trimEnd()} ${draft.trim()}`
+}
+
+type Kit = Pick<Elements['terminal'], 'Box' | 'Button' | 'Text'> & Partial<Pick<Elements['terminal'], 'Input'>>
+
+// Puts the command in the prompt; false, with a toast saying so, where no prompt box took it.
+async function putCommand($: EngineInterface, usage: string): Promise<boolean> {
+  const { text } = await $.prompt.read()
+  const command = commandText(usage, text)
+  const { isFilled } = await $.prompt.fill({ text: command })
+  if (!isFilled) {
+    $.ui.toast(`No prompt box took ${command.trim()}: type it yourself.`)
+  }
+
+  return isFilled
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -244,10 +289,8 @@ export const register: Register = on => {
 
   on('prompt.submit', async ($, e, next) => {
     if (e.origin.kind === 'composer' && !e.text.startsWith('/')) {
-      const used = await readUsed($)
-      await update($, session, s =>
-        offer({ ...s, tip: null, bash: [], prompts: s.prompts + 1 }, promptTips(e.text, e.turnId !== undefined), used),
-      )
+      const [used, tips] = await Promise.all([readUsed($), runnable($, promptTips(e.text, e.turnId !== undefined))])
+      await update($, session, s => offer({ ...s, tip: null, bash: [], prompts: s.prompts + 1 }, tips, used))
     }
 
     return next(e)
@@ -278,21 +321,18 @@ export const register: Register = on => {
 
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) {
-      const usage = await $.session.usage()
-      const used = await readUsed($)
-      await update($, session, s =>
-        offer(
-          s,
-          turnTips({
-            context: usage.context.percent,
-            fiveHour: usage.rateLimits.find(limit => limit.kind === 'five_hour')?.percentUsed,
-            isAborted: e.isAborted,
-            durationMs: e.durationMs,
-            session: s,
-          }),
-          used,
-        ),
+      const [usage, used, s] = await Promise.all([$.session.usage(), readUsed($), read($, session)])
+      const tips = await runnable(
+        $,
+        turnTips({
+          context: usage.context.percent,
+          fiveHour: usage.rateLimits.find(limit => limit.kind === 'five_hour')?.percentUsed,
+          isAborted: e.isAborted,
+          durationMs: e.durationMs,
+          session: s,
+        }),
       )
+      await update($, session, latest => offer(latest, tips, used))
     }
 
     return next(e)
@@ -312,35 +352,51 @@ export const register: Register = on => {
     return next(tip === null ? e : { ...e, props: { ...e.props, tail: `✦ /${tip.id} · ${tip.why}` } })
   })
 
+  // The cheat sheet as a launcher: type to filter and Enter takes the first match, or Tab to a row and Enter takes it.
+  // Taking one puts the command in the prompt and closes the sheet.
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
-    const [{ tip }, query, used, digest] = await Promise.all([
-      read($, session),
-      read($, filter),
-      readUsed($),
-      readDigest($),
-    ])
-    const needle = query.toLowerCase()
-    const groups = SHEET.map(([group, rows]) => [
-      group,
-      rows.filter(([usage, purpose]) => `${usage} ${purpose}`.toLowerCase().includes(needle)),
-    ] as const).filter(([, rows]) => rows.length > 0)
+    // Mobile draws no Input: there the sheet is filtered by /tips <word> alone.
+    const { Box, Button, Input, Text }: Kit = $.ui.resolve(e)
+    const [{ tip }, query, used, digest] = await Promise.all([read($, session), read($, filter), readUsed($), readDigest($)])
+    const groups = sheetFor(query)
     // One row per command: purposes stay whole where they can, and the usage column takes the rest.
     const rows = groups.flatMap(([, list]) => list)
     const longest = (column: 0 | 1) => Math.max(0, ...rows.map(row => row[column].length))
     const width = Math.min(longest(0), Math.max(18, e.props.bodyColumns - 4 - longest(1)))
+    // The sheet closes once its command is in the prompt, and stays open when nothing took it.
+    const take = (usage: string) => async () => {
+      if (await putCommand($, usage)) {
+        await $.ui.close({ id: PANE })
+      }
+    }
 
     return (
       <Box flexDirection="column">
-        <Box gap={1}>
+        <Box justifyContent="space-between">
           <Text bold>Cheat sheet</Text>
-          <Text dimColor>
-            {query === '' ? '' : `"${query}" · `}✓ used · ✦ suggested now
-          </Text>
+          <Text dimColor>✓ used · ✦ suggested now</Text>
         </Box>
-        {tip !== null && (
+        {Input !== undefined && (
           <Box gap={1} marginTop={1}>
-            <Text color="suggestion">✦ /{tip.id}</Text>
+            <Text color="claude">❯</Text>
+            <Input
+              key="filter"
+              value={query}
+              placeholder="filter, Enter takes the first match"
+              submitLabel="take"
+              autoFocus
+              onInput={value => update($, filter, () => value)}
+              onSubmit={value => {
+                const first = sheetFor(value)[0]?.[1][0]
+                return first === undefined ? update($, filter, () => value) : take(first[0])()
+              }}
+            />
+          </Box>
+        )}
+        {tip !== null && query === '' && (
+          <Box gap={1} marginTop={1}>
+            <Text color="suggestion">✦</Text>
+            <Button key="tip" plain label={`/${tip.id}`} onPress={take(`/${tip.id}`)} />
             <Text>{tip.why}</Text>
           </Box>
         )}
@@ -357,7 +413,7 @@ export const register: Register = on => {
             {digest.picks.map(([usage, purpose]) => (
               <Box key={`try-${usage}`} gap={1}>
                 <Text color="suggestion">→</Text>
-                <Text color="suggestion">{usage}</Text>
+                <Button key={`try-${usage}`} plain label={usage} onPress={take(usage)} />
                 <Text dimColor wrap="truncate-end">
                   {purpose}
                 </Text>
@@ -365,13 +421,17 @@ export const register: Register = on => {
             ))}
           </Box>
         )}
-        {groups.length === 0 && <Text dimColor>No command matches "{query}".</Text>}
-        {groups.map(([group, rows]) => (
+        {groups.length === 0 && (
+          <Box marginTop={1}>
+            <Text dimColor>No command matches "{query}".</Text>
+          </Box>
+        )}
+        {groups.map(([group, list]) => (
           <Box key={group} flexDirection="column" marginTop={1}>
             <Text bold color="claude">
               {group}
             </Text>
-            {rows.map(([usage, purpose]) => {
+            {list.map(([usage, purpose]) => {
               const names = commandNames(usage)
               const isTip = tip !== null && names.includes(tip.id)
               const isUsed = names.some(name => (used[name] ?? 0) > 0)
@@ -380,9 +440,11 @@ export const register: Register = on => {
                 <Box key={usage} gap={1}>
                   <Text color={isTip ? 'suggestion' : 'success'}>{isTip ? '✦' : isUsed ? '✓' : ' '}</Text>
                   <Box width={width} flexShrink={0}>
-                    <Text bold={isTip} color={isTip ? 'suggestion' : undefined} wrap="truncate-end">
-                      {usage}
-                    </Text>
+                    <Button key={usage} plain label={usage} onPress={take(usage)}>
+                      <Text bold={isTip} color={isTip ? 'suggestion' : undefined}>
+                        {usage.length > width ? `${usage.slice(0, Math.max(1, width - 1))}…` : usage}
+                      </Text>
+                    </Button>
                   </Box>
                   <Text dimColor={!isTip} wrap="truncate-end">
                     {purpose}

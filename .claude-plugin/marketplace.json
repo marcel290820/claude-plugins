@@ -12,7 +12,7 @@
     {
       "name": "tips",
       "source": "./plugins/tips",
-      "description": "Suggests the Claude Code command that fits the moment; /tips opens the cheat sheet."
+      "description": "Suggests the Claude Code command that fits the moment; /tips is a filterable launcher."
     },
     {
       "name": "tutor",

@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import type { TipsSession } from '../types'
-import { commandNames, digestLine, offer, promptTips, turnTips, weekly } from '../hooks/register'
+import { commandNames, commandText, digestLine, offer, promptTips, sheetFor, turnTips, weekly } from '../hooks/register'
 
 const FRESH: TipsSession = { tip: null, shown: [], prompts: 0, lastAt: -3, edited: [], bash: [], asks: 0 }
 const COMPOSER = { kind: 'composer' } as const
@@ -38,6 +38,12 @@ function fakeStore(on: On) {
   return values
 }
 
+// The commands the session can run: every one the sheet names, unless a test says otherwise.
+function commands(on: On, names = SHEET_NAMES) {
+  on('command.list', () => ({ value: names.map(name => ({ name, description: '', source: 'builtin' as const })) }))
+}
+const SHEET_NAMES = sheetFor('').flatMap(([, rows]) => rows.flatMap(([usage]) => commandNames(usage)))
+
 // The bottom of the hint line shows the tail a hook handed it.
 function hintBottom(on: On) {
   on('ui.render', ($, e) => {
@@ -60,6 +66,9 @@ test('prompts map to the command that fits them', () => {
   expect(first('the hooks are not firing in claude code')).toBe('doctor')
   expect(first('is that file still used?', true)).toBe('btw')
   expect(first('is that file still used?')).toBeUndefined()
+  expect(first('what is a bloom filter?')).toBe('tutor')
+  expect(first('explain teacher forcing')).toBe('tutor')
+  expect(first('what is in src/app.ts?')).toBeUndefined()
   expect(first(`please implement the importer ${'with care '.repeat(40)}`)).toBe('plan')
   expect(first('fix the typo in the readme')).toBeUndefined()
 })
@@ -149,6 +158,7 @@ test('a digest is logged at the first interactive start, then weekly', async ($,
 
 test('a fitting prompt puts the tip under the prompt until the person takes it', async ($, on) => {
   const store = fakeStore(on)
+  commands(on)
   hintBottom(on)
   on('prompt.submit', (_, e) => ({ text: e.text }))
   on('command.run', () => ({}))
@@ -167,6 +177,7 @@ test('a fitting prompt puts the tip under the prompt until the person takes it',
 
 test('a full context window suggests /compact when the turn ends', async ($, on) => {
   fakeStore(on)
+  commands(on)
   hintBottom(on)
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: 160_000, window: 200_000, percent: 80 }, rateLimits: [] } }))
@@ -178,6 +189,7 @@ test('a full context window suggests /compact when the turn ends', async ($, on)
 
 test('two sessions counting at once both count', async ($, on) => {
   fakeStore(on)
+  commands(on)
   hintBottom(on)
   on('command.run', () => ({}))
   let calls = 0
@@ -236,4 +248,77 @@ test('/tips opens the cheat sheet, filtered by its argument', async ($, on) => {
     expect(await some.find({ text: '/plan [task]' })).toBeUndefined()
     await some.unmount()
   }
+})
+
+test('a tip never names a command this session cannot run', async ($, on) => {
+  fakeStore(on)
+  commands(on, ['compact'])
+  hintBottom(on)
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+
+  await $.prompt.submit({ text: 'research rust web frameworks', wait: false, origin: COMPOSER })
+  const hint = await $.ui.mount({ ...HINT, surface: 'terminal' })
+  expect((await hint.find({ type: 'Text' }))?.text).toBe('no tip')
+})
+
+test('taking a row puts its command in the prompt, ready for its arguments', () => {
+  expect(commandText('/plan [task]', '')).toBe('/plan ')
+  expect(commandText('/diff', '')).toBe('/diff')
+  expect(commandText('/rewind · /checkpoint · /undo', '')).toBe('/rewind')
+  expect(commandText('/compact [instructions]', 'keep the plan')).toBe('/compact keep the plan')
+  expect(commandText('/code-review ultra · /ultrareview', '')).toBe('/code-review ultra')
+  expect(commandText('/doctor prompt-audit [path]', '')).toBe('/doctor prompt-audit ')
+  expect(commandText('/effort ultracode [on|off]', '')).toBe('/effort ultracode ')
+})
+
+test('the sheet filters as you type, Enter takes the first match, and a row press takes that one', async ($, on) => {
+  fakeStore(on)
+  const box = { text: '' }
+  const closed: string[] = []
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.close', (_, e) => {
+    closed.push(e.id)
+    return { value: undefined }
+  })
+  on('prompt.read', () => ({ value: { text: box.text, cursor: 0 } }))
+  on('prompt.fill', (_, e) => {
+    box.text = e.text
+    return { isFilled: true, text: e.text, cursor: e.text.length }
+  })
+
+  await $.command.run({ command: 'tips', args: '', origin: COMPOSER, presentation: PRESENTATION })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.input({ key: 'filter', text: 'compa', kind: 'change' })
+  expect(await ui.find({ key: '/plan [task]' })).toBeUndefined()
+  await ui.input({ key: 'filter', text: 'compa' })
+  expect(box.text).toBe('/compact ')
+  expect(closed).toEqual(['tips'])
+
+  box.text = ''
+  await ui.input({ key: 'filter', text: '', kind: 'change' })
+  await ui.press({ key: '/diff' })
+  expect(box.text).toBe('/diff')
+})
+
+test('the sheet stays open and says so when no prompt box takes the command', async ($, on) => {
+  fakeStore(on)
+  const closed: string[] = []
+  const toasts: string[] = []
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.close', (_, e) => {
+    closed.push(e.id)
+    return { value: undefined }
+  })
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  on('prompt.read', () => ({ value: { text: '', cursor: 0 } }))
+  on('prompt.fill', () => ({ isFilled: false, text: '', cursor: 0 }))
+
+  await $.command.run({ command: 'tips', args: '', origin: COMPOSER, presentation: PRESENTATION })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: '/diff' })
+  expect(closed).toEqual([])
+  expect(toasts).toEqual(['No prompt box took /diff: type it yourself.'])
 })

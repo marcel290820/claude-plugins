@@ -1,6 +1,6 @@
 {
   "name": "tips",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Suggests the Claude Code command that fits the moment; /tips opens the cheat sheet.",
   "types": "./types/index.d.ts"
 }
