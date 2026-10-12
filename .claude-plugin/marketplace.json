@@ -5,11 +5,6 @@
   },
   "plugins": [
     {
-      "name": "debrief",
-      "source": "./plugins/debrief",
-      "description": "Claude's debrief above the prompt after each turn: its next steps to mark and its assumptions to confirm, one key each."
-    },
-    {
       "name": "tips",
       "source": "./plugins/tips",
       "description": "Suggests the Claude Code command that fits the moment; /tips is a filterable launcher."
