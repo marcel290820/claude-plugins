@@ -3,8 +3,6 @@
 # Check command, first found: .claude/check.sh > .codex/check.sh > make check > package.json "check".
 # None found, clean tree, or unchanged since the last green run -> exit 0 without running it.
 # Failure -> exit 1 with the tail of the output.
-# The fingerprint and its state file match ~/.claude/hooks/stop-check.sh, so a tree the Stop check
-# already passed is not checked again at commit time.
 set -u
 [ -z "$(git status --porcelain)" ] && exit 0
 if [ -x .claude/check.sh ]; then CHECK=".claude/check.sh"

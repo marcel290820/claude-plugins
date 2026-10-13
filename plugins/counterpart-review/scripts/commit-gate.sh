@@ -14,8 +14,7 @@
 # Text matching covers commits as agents normally write them. Only the first commit in a command is
 # checked (later matches are usually commit message text), and forms that could commit elsewhere
 # (cd before the commit, other git options, a -C path with variables or quotes) are denied with a
-# hint. The git-level backstop (~/.claude/git-hooks) reruns gitleaks and the project check inside
-# every agent commit, whatever the command looked like.
+# hint.
 # Hook runners (e.g. the VPS Codex daemon) can start with a minimal PATH; user-installed tools live here.
 export PATH="$PATH:$HOME/.local/bin"
 set -u
